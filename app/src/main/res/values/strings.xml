@@ -1,0 +1,27 @@
+<resources>
+    <string name="app_name">ExoMIne</string>
+    <string name="mp3_1">https://fs.vusic.ir/posts/33690/YCDARMDOnrX47phvR6nk3dBHYVL4jIfP2vfZkhYt.mp3</string>
+    <string name="mp3_2">https://fs.vusic.ir/posts/33184/DdFLqa7x45B18kMOEtnkJnIQtqxOKwv7hzwMOPwv.mp3</string>
+    <string name="mp3_3">https://fs.vusic.ir/posts/33184/DdFLqa7x45B18kMOEtnkJnIQtqxOKwv7hzwMOPwv.mp3</string>
+    <string name="mp3_4">https://fs.vusic.ir/posts/33216/wwpoJWJV5AWawssEbFPSpJlzIOJTdL0qkcC7ITj0.mp3</string>
+    <string name="mp3_5">https://fs.vusic.ir/posts/33216/wwpoJWJV5AWawssEbFPSpJlzIOJTdL0qkcC7ITj0.mp3</string>
+    <string name="allowed_caller_log">
+        Caller has a valid certificate, but its package doesn\'t match any expected package for the
+        given certificate. To allow this caller, add the following to the allowed callers list:\n
+        <![CDATA[
+        <signature name=\"%1$s\" package=\"%2$s\">\n\t<key>%3$s</key>\n</signature>\n
+        ]]>
+    </string>
+
+
+    <string name="generic_error">The application has encountered an unexpected error.</string>
+    <string name="error_media_not_found">Could not locate requested media.</string>
+    <string name="channel_name">notif</string>
+    <string name="channel_desciption">Could not locate requested media.</string>
+
+    <string name="duration_unknown">--:--</string>
+    <string name="duration_format">%d:%02d</string>
+    <string name="duration">1:20</string>
+
+
+</resources>

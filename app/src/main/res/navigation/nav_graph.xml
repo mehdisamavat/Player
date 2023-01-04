@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/musicListFragment">
+
+    <fragment
+        android:id="@+id/musicListFragment"
+        android:name="com.example.exomine.ui.musiclist.MusicListFragment"
+        android:label="fragment_music_list"
+        tools:layout="@layout/fragment_music_list" >
+        <action
+            android:id="@+id/action_musicListFragment_to_detailMusicFragment"
+            app:destination="@id/detailMusicFragment" />
+    </fragment>
+    <fragment
+        android:id="@+id/detailMusicFragment"
+        android:name="com.example.exomine.ui.detailmusic.DetailMusicFragment"
+        android:label="fragment_detail_music"
+        tools:layout="@layout/fragment_detail_music" >
+        <argument android:name="id"
+            app:argType="string" />
+    </fragment>
+</navigation>
