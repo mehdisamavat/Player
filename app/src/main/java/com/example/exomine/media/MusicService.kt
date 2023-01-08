@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.ResultReceiver
 import android.support.v4.media.MediaBrowserCompat
@@ -11,51 +12,65 @@ import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
-import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.media.MediaBrowserServiceCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.util.EventLogger
+import androidx.media3.session.*
 import com.example.exomine.*
 import com.example.exomine.R
 import com.example.exomine.util.getPendingIntentFlag
-import com.google.android.exoplayer2.*
-import com.google.android.exoplayer2.Player.*
-import com.google.android.exoplayer2.audio.AudioAttributes
-import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector
-import com.google.android.exoplayer2.ext.mediasession.TimelineQueueNavigator
-import com.google.android.exoplayer2.ui.PlayerNotificationManager
-import com.google.android.exoplayer2.util.Util.constrainValue
+import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlin.math.max
 
-class MusicService : MediaBrowserServiceCompat() {
+open class MusicService : MediaBrowserServiceCompat() {
 
 
 
-    private lateinit var notificationManager: UampNotificationManager
+    private lateinit var notificationManager: MediaLibraryService
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
 
 
-    protected lateinit var mediaSession: MediaSessionCompat
-    protected lateinit var mediaSessionConnector: MediaSessionConnector
+//    protected lateinit var mediaSession: MediaSessionCompat
+    protected lateinit var mediaSession: MediaLibraryService.MediaLibrarySession
+
     private var currentPlaylistItems: List<MediaMetadataCompat> = emptyList()
     private var currentMediaItemIndex: Int = 0
     private val uAmpAudioAttributes = AudioAttributes.Builder()
-        .setContentType(C. AUDIO_CONTENT_TYPE_MUSIC )
+        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
         .setUsage(C.USAGE_MEDIA)
         .build()
     private val playerListener = PlayerEventListener()
 
-    private val exoPlayer: ExoPlayer by lazy {
-        ExoPlayer.Builder(this).build().apply {
+    private val exoPlayer: Player by lazy {
+        val player = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(uAmpAudioAttributes, true)
             setHandleAudioBecomingNoisy(true)
             addListener(playerListener)
         }
+        player.addAnalyticsListener(EventLogger(null, "exoplayer-uamp"))
+        player
+    }
+
+    private val replaceableForwardingPlayer: ReplaceableForwardingPlayer by lazy {
+        ReplaceableForwardingPlayer(exoPlayer)
+    }
+
+    open fun getCallback(): MediaLibraryService.MediaLibrarySession.Callback {
+        return MusicServiceCallback()
     }
 
     private inner class UampQueueNavigator(
@@ -69,7 +84,6 @@ class MusicService : MediaBrowserServiceCompat() {
         }
     }
     private inner class UampPlaybackPreparer : MediaSessionConnector.PlaybackPreparer {
-
         override fun getSupportedPrepareActions(): Long =
             PlaybackStateCompat.ACTION_PREPARE or
                     PlaybackStateCompat.ACTION_PLAY or
@@ -95,17 +109,6 @@ class MusicService : MediaBrowserServiceCompat() {
 
         override fun onPrepareFromSearch(query: String, playWhenReady: Boolean, extras: Bundle?) {
 
-//            mediaSource.whenReady {
-//                val metadataList = mediaSource.search(query, extras ?: Bundle.EMPTY)
-//                if (metadataList.isNotEmpty()) {
-//                    preparePlaylist(
-//                        metadataList,
-//                        metadataList[0],
-//                        playWhenReady,
-//                        playbackStartPositionMs = C.TIME_UNSET
-//                    )
-//                }
-//            }
         }
 
         override fun onPrepareFromUri(uri: Uri, playWhenReady: Boolean, extras: Bundle?) = Unit
@@ -115,25 +118,6 @@ class MusicService : MediaBrowserServiceCompat() {
             extras: Bundle?,
             cb: ResultReceiver?
         ): Boolean {
-//            if (command == "set") {
-//                val list: ArrayList<Post> = extras?.getParcelableArrayList("list")!!
-//                currentPlaylistItems = list.map {
-//                    val jsonImageUri = Uri.parse(it.image)
-//                    val imageUri = mapUri(jsonImageUri)
-//                    MediaMetadataCompat.Builder()
-//                        .from(it)
-//                        .apply {
-//                            displayIconUri =
-//                                imageUri.toString() // Used by ExoPlayer and Notification
-//                            albumArtUri = imageUri.toString()
-//                            // Keep the original artwork URI for being included in Cast metadata object.
-//                            putString(ORIGINAL_ARTWORK_URI_KEY, jsonImageUri.toString())
-//                        }
-//                        .build()
-//                }
-//            }
-//            notifyChildrenChanged(MY_MEDIA_ROOT_ID)
-
             return true
         }
 
@@ -155,75 +139,23 @@ class MusicService : MediaBrowserServiceCompat() {
             stopSelf()
         }
     }
-    private inner class PlayerEventListener : Listener {
+    private inner class PlayerEventListener : Player.Listener {
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
             super.onMediaMetadataChanged(mediaMetadata)
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             super.onPlaybackStateChanged(playbackState)
-//            var actions = MEDIA_SESSION_ACTIONS
-//            var playbackStateCompatInt:Int=PlaybackStateCompat.STATE_NONE
-//
-//            when (playbackState) {
-//                STATE_BUFFERING -> {
-//                    playbackStateCompatInt=PlaybackStateCompat.STATE_BUFFERING
-//                    actions = actions or PlaybackStateCompat.ACTION_PAUSE }
-//                STATE_ENDED -> {
-//                    Log.i("mehdi", "STATE_ENDED")
-//                    playbackStateCompatInt=PlaybackStateCompat.STATE_STOPPED
-//                    actions = actions or PlaybackStateCompat.ACTION_PLAY }
-//                STATE_IDLE -> {
-//                    Log.i("mehdi", "STATE_IDLE")
-//                    playbackStateCompatInt=PlaybackStateCompat.STATE_NONE
-//                    actions = actions or PlaybackStateCompat.ACTION_PLAY
-//                }
-//                STATE_READY -> {
-//                    Log.i("mehdi", "STATE_READY")
-//                }
-//            }
-
-//            mediaSession.setPlaybackState(
-//                PlaybackStateCompat.Builder()
-//                    .setState(playbackStateCompatInt, 0, 1.0f)
-//                    .setActions(actions)
-//                    .build())
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             super.onPlayWhenReadyChanged(playWhenReady, reason)
-//            var actions = MEDIA_SESSION_ACTIONS
-//            var playbackStateCompatInt:Int=PlaybackStateCompat.STATE_NONE
-//
-//            if (playWhenReady){
-//                Log.i("mehdi", "ReadyChanged  $playWhenReady")
-//                playbackStateCompatInt=PlaybackStateCompat.STATE_PLAYING
-//                actions = actions or PlaybackStateCompat.ACTION_PAUSE
-//            }else{
-//                playbackStateCompatInt=PlaybackStateCompat.STATE_PAUSED
-//                Log.i("mehdi", "ReadyChanged  $playWhenReady")
-//                actions = actions or PlaybackStateCompat.ACTION_PLAY
-//            }
-
-//            mediaSession.setPlaybackState(
-//                PlaybackStateCompat.Builder()
-//                    .setState(playbackStateCompatInt, 0, 1.0f)
-//                    .setActions(actions)
-//                    .build())
 
         }
 
 
         override fun onEvents(player: Player, events: Events) {
-//            Log.i("mehdi","PlayerEventListener   onEvents()  $events")
-//            if (events.contains(EVENT_POSITION_DISCONTINUITY)
-//                || events.contains(EVENT_MEDIA_ITEM_TRANSITION)
-//                || events.contains(EVENT_PLAY_WHEN_READY_CHANGED)
-//            ) {
-//                currentMediaItemIndex = if (currentPlaylistItems.isNotEmpty()) {
-//                    constrainValue(player.currentMediaItemIndex, 0,currentPlaylistItems.size - 1)
-//                } else 0
-//            }
+
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -247,6 +179,125 @@ class MusicService : MediaBrowserServiceCompat() {
         }
     }
 
+
+    open inner class MusicServiceCallback: MediaLibraryService.MediaLibrarySession.Callback {
+
+        override fun onGetLibraryRoot(session: MediaLibraryService.MediaLibrarySession, browser: MediaSession.ControllerInfo, params: MediaLibraryService.LibraryParams?): ListenableFuture<LibraryResult<MediaItem>> {
+            // By default, all known clients are permitted to search, but only tell unknown callers
+            // about search if permitted by the [BrowseTree].
+            val isKnownCaller = packageValidator.isKnownCaller(browser.packageName, browser.uid)
+            val rootExtras = Bundle().apply {
+                putBoolean(MEDIA_SEARCH_SUPPORTED, isKnownCaller || browseTree.searchableByUnknownCaller)
+                putBoolean(CONTENT_STYLE_SUPPORTED, true)
+                putInt(CONTENT_STYLE_BROWSABLE_HINT, CONTENT_STYLE_GRID)
+                putInt(CONTENT_STYLE_PLAYABLE_HINT, CONTENT_STYLE_LIST)
+            }
+            val libraryParams = MediaLibraryService.LibraryParams.Builder().setExtras(rootExtras).build()
+            val rootMediaItem = if (!isKnownCaller) {
+                MediaItem.EMPTY
+            } else if (params?.isRecent == true) {
+                if (exoPlayer.currentTimeline.isEmpty) {
+                    storage.loadRecentSong()?.let {
+                        preparePlayerForResumption(it)
+                    }
+                }
+                recentRootMediaItem
+            } else {
+                catalogueRootMediaItem
+            }
+            return Futures.immediateFuture(LibraryResult.ofItem(rootMediaItem, libraryParams))
+        }
+
+        override fun onGetChildren(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            if (parentId == recentRootMediaItem.mediaId) {
+                return Futures.immediateFuture(
+                    LibraryResult.ofItemList(
+                        storage.loadRecentSong()?.let {
+                                song -> listOf(song)
+                        }!!,
+                        MediaLibraryService.LibraryParams.Builder().build()
+                    )
+                )
+            }
+            return callWhenMusicSourceReady {
+                LibraryResult.ofItemList(
+                    browseTree[parentId] ?: ImmutableList.of(),
+                    MediaLibraryService.LibraryParams.Builder().build()
+                )
+            }
+        }
+
+        override fun onGetItem(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            return callWhenMusicSourceReady {
+                LibraryResult.ofItem(
+                    browseTree.getMediaItemByMediaId(mediaId) ?: MediaItem.EMPTY,
+                    MediaLibraryService.LibraryParams.Builder().build())
+            }
+        }
+
+        override fun onSearch(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<Void>> {
+            return callWhenMusicSourceReady {
+                val searchResult = musicSource.search(query, params?.extras ?: Bundle())
+                mediaSession.notifySearchResultChanged(browser, query, searchResult.size, params)
+                LibraryResult.ofVoid()
+            }
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            return callWhenMusicSourceReady {
+                val searchResult = musicSource.search(query, params?.extras ?: Bundle())
+                val fromIndex = max((page - 1) * pageSize, searchResult.size - 1)
+                val toIndex = max(fromIndex + pageSize, searchResult.size)
+                LibraryResult.ofItemList(searchResult.subList(fromIndex, toIndex), params)
+            }
+        }
+
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>
+        ): ListenableFuture<MutableList<MediaItem>> {
+            return callWhenMusicSourceReady {
+                mediaItems.map { browseTree.getMediaItemByMediaId(it.mediaId)!! }.toMutableList()
+            }
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle
+        ): ListenableFuture<SessionResult> {
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+        }
+    }
+
+
+
+
     @ExperimentalCoroutinesApi
     override fun onCreate() {
         super.onCreate()
@@ -255,10 +306,24 @@ class MusicService : MediaBrowserServiceCompat() {
             PendingIntent.getActivity(this, 0, sessionIntent, getPendingIntentFlag())
             }
 
-        mediaSession = MediaSessionCompat(this, "MusicService").apply {
-            setSessionActivity(sessionActivityPendingIntent)
-            isActive = true
+        mediaSession = with(
+            MediaLibraryService.MediaLibrarySession.Builder(this, replaceableForwardingPlayer, getCallback())) {
+            setId(packageName)
+            packageManager?.getLaunchIntentForPackage(packageName)?.let { sessionIntent ->
+                setSessionActivity(
+                    PendingIntent.getActivity(
+                        /* context= */ this@MusicService,
+                        /* requestCode= */ 0,
+                        sessionIntent,
+                        if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE
+                        else PendingIntent.FLAG_UPDATE_CURRENT
+                    )
+                )
+            }
+            build()
         }
+
+
         mediaSession.setCallback(object :MediaSessionCompat.Callback(){
             override fun onPrepareFromMediaId(mediaId: String?, extras: Bundle?) {
             }
